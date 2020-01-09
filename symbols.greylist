@@ -1,5 +1,0 @@
-__skb_tx_hash
-dcb_setapp
-dcbnl_cee_notify
-pci_vpd_find_info_keyword
-pci_vpd_find_tag

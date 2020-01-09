@@ -1,0 +1,65 @@
+diff --git a/drivers/net/bnx2x/bnx2x.h b/drivers/net/bnx2x/bnx2x.h
+index 6b3ef35..ba1f64a 100644
+--- a/drivers/net/bnx2x/bnx2x.h
++++ b/drivers/net/bnx2x/bnx2x.h
+@@ -81,6 +81,11 @@ enum bnx2x_int_mode {
+ #define BNX2X_MSG_ETHTOOL		0x4000000
+ #define BNX2X_MSG_DCB			0x8000000
+ 
++static inline s64 ktime_ms_delta(const ktime_t later, const ktime_t earlier)
++{
++        return ktime_to_ms(ktime_sub(later, earlier));
++}
++
+ /* regular debug print */
+ #define DP_INNER(fmt, ...)					\
+ 	pr_notice("[%s:%d(%s)]" fmt,				\
+diff --git a/drivers/net/bnx2x/bnx2x_ethtool.c b/drivers/net/bnx2x/bnx2x_ethtool.c
+index 73e50f0..fc9b6e7 100644
+--- a/drivers/net/bnx2x/bnx2x_ethtool.c
++++ b/drivers/net/bnx2x/bnx2x_ethtool.c
+@@ -3416,18 +3416,12 @@ static u32 bnx2x_get_rxfh_indir_size(struct net_device *dev)
+ 	return T_ETH_INDIRECTION_TABLE_SIZE;
+ }
+ 
+-static int bnx2x_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
+-			  u8 *hfunc)
++static int bnx2x_get_rxfh(struct net_device *dev, u32 *indir, u8 *key)
+ {
+ 	struct bnx2x *bp = netdev_priv(dev);
+ 	u8 ind_table[T_ETH_INDIRECTION_TABLE_SIZE] = {0};
+ 	size_t i;
+ 
+-	if (hfunc)
+-		*hfunc = ETH_RSS_HASH_TOP;
+-	if (!indir)
+-		return 0;
+-
+ 	/* Get the current configuration of the RSS indirection table */
+ 	bnx2x_get_rss_ind_table(&bp->rss_conf_obj, ind_table);
+ 
+@@ -3446,22 +3440,12 @@ static int bnx2x_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
+ 	return 0;
+ }
+ 
+-static int bnx2x_set_rxfh(struct net_device *dev, const u32 *indir,
+-			  const u8 *key, const u8 hfunc)
++static int bnx2x_set_rxfh(struct net_device *dev, u32 *indir,
++			  u8 *key)
+ {
+ 	struct bnx2x *bp = netdev_priv(dev);
+ 	size_t i;
+ 
+-	/* We require at least one supported parameter to be changed and no
+-	 * change in any of the unsupported parameters
+-	 */
+-	if (key ||
+-	    (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_TOP))
+-		return -EOPNOTSUPP;
+-
+-	if (!indir)
+-		return 0;
+-
+ 	for (i = 0; i < T_ETH_INDIRECTION_TABLE_SIZE; i++) {
+ 		/*
+ 		 * The same as in bnx2x_get_rxfh: we can't use a memcpy()
