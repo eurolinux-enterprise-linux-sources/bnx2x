@@ -1,11 +1,11 @@
 %define kmod_name		bnx2x
-%define kmod_driver_version	1.710.51
-%define kmod_rpm_release	3
-%define kmod_git_hash		7ddc31247e7f0623d933dd476e3aac576eaa8599
-%define kmod_kernel_version	3.10.0-123.el7
-%define kernel_version		3.10.0-123.el7
+%define kmod_driver_version	1.712.30
+%define kmod_rpm_release	1
+%define kmod_git_hash		233fd923ea4759062abb3c26493beea638264c72
+%define kmod_kernel_version	3.10.0-327.el7
+%define kernel_version		3.10.0-327.el7
 %define kmod_kbuild_dir		drivers/net/ethernet/broadcom/bnx2x
-%define kmod_firmware_version	7.10.51
+%define kmod_firmware_version	7.13.1
 
 %{!?dist: %define dist .el7}
 
@@ -118,5 +118,6 @@ fi
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
-* Mon Nov 24 2014 Weiping Pan <panweiping3@gmail.com> 1.710.51 3
+* Wed Jul 13 2016 Petr Oros <poros@redhat.com> 1.712.30 1
 - bnx2x DUP module
+- Resolves: #1347013

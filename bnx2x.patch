@@ -1,85 +1,120 @@
-diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h b/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h
-index 86e9451..5097083 100644
---- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h
-+++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h
-@@ -2581,4 +2581,9 @@ void bnx2x_set_rx_ts(struct bnx2x *bp, struct sk_buff *skb);
- #define BNX2X_MAX_PHC_DRIFT 31000000
- #define BNX2X_PTP_TX_TIMEOUT
- 
-+static inline int dup_is_kdump_kernel(void)
-+{
-+	return reset_devices;
-+}
-+
- #endif /* bnx2x.h */
+From 233fd923ea4759062abb3c26493beea638264c72 Mon Sep 17 00:00:00 2001
+From: Petr Oros <poros@redhat.com>
+Date: Wed, 13 Jul 2016 18:33:14 +0200
+Subject: [PATCH] bnx2x: backport for RHEL7.2GA kernel
+
+Signed-off-by: Petr Oros <poros@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c  | 15 +++------------
+ drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.h  |  5 +----
+ drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c | 10 +++++-----
+ 3 files changed, 9 insertions(+), 21 deletions(-)
+
 diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c
-index 66717c5..bd1fed9 100644
+index 07e88de..860c1fb 100644
 --- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c
 +++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c
-@@ -65,7 +65,7 @@ static int bnx2x_calc_num_queues(struct bnx2x *bp)
- 	int nq = bnx2x_num_queues ? : netif_get_num_default_rss_queues();
- 
- 	/* Reduce memory usage in kdump environment by using only one queue */
--	if (is_kdump_kernel())
-+	if (dup_is_kdump_kernel())
- 		nq = 1;
- 
- 	nq = clamp(nq, 1, BNX2X_MAX_QUEUES(bp));
-@@ -1647,6 +1647,44 @@ void bnx2x_free_irq(struct bnx2x *bp)
- 	}
+@@ -678,7 +678,7 @@ static int bnx2x_fill_frag_skb(struct bnx2x *bp, struct bnx2x_fastpath *fp,
+ static void bnx2x_frag_free(const struct bnx2x_fastpath *fp, void *data)
+ {
+ 	if (fp->rx_frag_size)
+-		skb_free_frag(data);
++		put_page(virt_to_head_page(data));
+ 	else
+ 		kfree(data);
+ }
+@@ -1908,8 +1908,7 @@ void bnx2x_netif_stop(struct bnx2x *bp, int disable_hw)
+ 		bnx2x_napi_disable_cnic(bp);
  }
  
-+/**
-+ * pci_enable_msix_range - configure device's MSI-X capability structure
-+ * @dev: pointer to the pci_dev data structure of MSI-X device function
-+ * @entries: pointer to an array of MSI-X entries
-+ * @minvec: minimum number of MSI-X irqs requested
-+ * @maxvec: maximum number of MSI-X irqs requested
-+ *
-+ * Setup the MSI-X capability structure of device function with a maximum
-+ * possible number of interrupts in the range between @minvec and @maxvec
-+ * upon its software driver call to request for MSI-X mode enabled on its
-+ * hardware device function. It returns a negative errno if an error occurs.
-+ * If it succeeds, it returns the actual number of interrupts allocated and
-+ * indicates the successful configuration of MSI-X capability structure
-+ * with new allocated MSI-X interrupts.
-+ **/
-+static int pci_enable_msix_range(struct pci_dev *dev, struct msix_entry *entries,
-+			       int minvec, int maxvec)
-+{
-+	int nvec = maxvec;
-+	int rc;
-+
-+	if (maxvec < minvec)
-+		return -ERANGE;
-+
-+	do {
-+		rc = pci_enable_msix(dev, entries, nvec);
-+		if (rc < 0) {
-+			return rc;
-+		} else if (rc > 0) {
-+			if (rc < minvec)
-+				return -ENOSPC;
-+			nvec = rc;
-+		}
-+	} while (rc);
-+
-+	return nvec;
-+}
-+
- int bnx2x_enable_msix(struct bnx2x *bp)
+-u16 bnx2x_select_queue(struct net_device *dev, struct sk_buff *skb,
+-		       void *accel_priv, select_queue_fallback_t fallback)
++u16 bnx2x_select_queue(struct net_device *dev, struct sk_buff *skb)
  {
- 	int msix_vec = 0, i, rc;
+ 	struct bnx2x *bp = netdev_priv(dev);
+ 
+@@ -1931,7 +1930,7 @@ u16 bnx2x_select_queue(struct net_device *dev, struct sk_buff *skb,
+ 	}
+ 
+ 	/* select a non-FCoE queue */
+-	return fallback(dev, skb) % BNX2X_NUM_ETH_QUEUES(bp);
++	return __netdev_pick_tx(dev, skb) % BNX2X_NUM_ETH_QUEUES(bp);
+ }
+ 
+ void bnx2x_set_num_queues(struct bnx2x *bp)
+@@ -4276,14 +4275,6 @@ int bnx2x_setup_tc(struct net_device *dev, u8 num_tc)
+ 	return 0;
+ }
+ 
+-int __bnx2x_setup_tc(struct net_device *dev, u32 handle, __be16 proto,
+-		     struct tc_to_netdev *tc)
+-{
+-	if (tc->type != TC_SETUP_MQPRIO)
+-		return -EINVAL;
+-	return bnx2x_setup_tc(dev, tc->tc);
+-}
+-
+ /* called with rtnl_lock */
+ int bnx2x_change_mac_addr(struct net_device *dev, void *p)
+ {
+diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.h b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.h
+index 0e68fad..cabbb1c 100644
+--- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.h
++++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.h
+@@ -486,8 +486,6 @@ netdev_tx_t bnx2x_start_xmit(struct sk_buff *skb, struct net_device *dev);
+ 
+ /* setup_tc callback */
+ int bnx2x_setup_tc(struct net_device *dev, u8 num_tc);
+-int __bnx2x_setup_tc(struct net_device *dev, u32 handle, __be16 proto,
+-		     struct tc_to_netdev *tc);
+ 
+ int bnx2x_get_vf_config(struct net_device *dev, int vf,
+ 			struct ifla_vf_info *ivi);
+@@ -495,8 +493,7 @@ int bnx2x_set_vf_mac(struct net_device *dev, int queue, u8 *mac);
+ int bnx2x_set_vf_vlan(struct net_device *netdev, int vf, u16 vlan, u8 qos);
+ 
+ /* select_queue callback */
+-u16 bnx2x_select_queue(struct net_device *dev, struct sk_buff *skb,
+-		       void *accel_priv, select_queue_fallback_t fallback);
++u16 bnx2x_select_queue(struct net_device *dev, struct sk_buff *skb);
+ 
+ static inline void bnx2x_update_rx_prod(struct bnx2x *bp,
+ 					struct bnx2x_fastpath *fp,
 diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c
-index e22c363..491ffe0 100644
+index 3d8261e..440750a 100644
 --- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c
 +++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c
-@@ -11972,7 +11972,7 @@ static int bnx2x_init_bp(struct bnx2x *bp)
- 	bp->disable_tpa = disable_tpa;
- 	bp->disable_tpa |= IS_MF_STORAGE_SD(bp) || IS_MF_FCOE_AFEX(bp);
- 	/* Reduce memory usage in kdump environment by disabling TPA */
--	bp->disable_tpa |= is_kdump_kernel();
-+	bp->disable_tpa |= dup_is_kdump_kernel();
+@@ -77,9 +77,9 @@
+ 	__stringify(BCM_5710_FW_MINOR_VERSION) "."	\
+ 	__stringify(BCM_5710_FW_REVISION_VERSION) "."	\
+ 	__stringify(BCM_5710_FW_ENGINEERING_VERSION)
+-#define FW_FILE_NAME_E1		"bnx2x/bnx2x-e1-" FW_FILE_VERSION ".fw"
+-#define FW_FILE_NAME_E1H	"bnx2x/bnx2x-e1h-" FW_FILE_VERSION ".fw"
+-#define FW_FILE_NAME_E2		"bnx2x/bnx2x-e2-" FW_FILE_VERSION ".fw"
++#define FW_FILE_NAME_E1		"bnx2x-e1-" FW_FILE_VERSION ".fw"
++#define FW_FILE_NAME_E1H	"bnx2x-e1h-" FW_FILE_VERSION ".fw"
++#define FW_FILE_NAME_E2		"bnx2x-e2-" FW_FILE_VERSION ".fw"
  
- 	/* Set TPA flags */
- 	if (bp->disable_tpa) {
+ /* Time in jiffies before concluding the transmitter is hung */
+ #define TX_TIMEOUT		(5*HZ)
+@@ -12859,7 +12859,7 @@ static int bnx2x_validate_addr(struct net_device *dev)
+ }
+ 
+ static int bnx2x_get_phys_port_id(struct net_device *netdev,
+-				  struct netdev_phys_item_id *ppid)
++				  struct netdev_phys_port_id *ppid)
+ {
+ 	struct bnx2x *bp = netdev_priv(netdev);
+ 
+@@ -13034,7 +13034,7 @@ static const struct net_device_ops bnx2x_netdev_ops = {
+ #ifdef CONFIG_NET_POLL_CONTROLLER
+ 	.ndo_poll_controller	= poll_bnx2x,
+ #endif
+-	.ndo_setup_tc		= __bnx2x_setup_tc,
++	.ndo_setup_tc		= bnx2x_setup_tc,
+ #ifdef CONFIG_BNX2X_SRIOV
+ 	.ndo_set_vf_mac		= bnx2x_set_vf_mac,
+ 	.ndo_set_vf_vlan	= bnx2x_set_vf_vlan,
+-- 
+1.8.3.1
+

@@ -1,4 +1,4 @@
-fw =  bnx2x/bnx2x-e1-7.10.51.0.fw bnx2x/bnx2x-e1h-7.10.51.0.fw bnx2x/bnx2x-e2-7.10.51.0.fw
+fw =  bnx2x-e1-7.13.1.0.fw bnx2x-e1h-7.13.1.0.fw bnx2x-e2-7.13.1.0.fw
 
 firmware: $(fw)
 
