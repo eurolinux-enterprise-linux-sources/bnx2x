@@ -1,0 +1,2 @@
+Requires:	firmware(%{kmod_name}) = %{kmod_firmware_version}
+Requires:	kmod-cnic = 2.5.9

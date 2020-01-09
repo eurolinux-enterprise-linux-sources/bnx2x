@@ -1,0 +1,2 @@
+0x92df5551	cnic_register_driver	drivers/net/cnic	EXPORT_SYMBOL
+0x636af174	cnic_unregister_driver	drivers/net/cnic	EXPORT_SYMBOL
