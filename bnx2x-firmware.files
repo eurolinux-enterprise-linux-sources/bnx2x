@@ -1,0 +1,4 @@
+%defattr(644,root,root,755)
+/lib/firmware/bnx2x/bnx2x-e1-7.10.51.0.fw
+/lib/firmware/bnx2x/bnx2x-e1h-7.10.51.0.fw
+/lib/firmware/bnx2x/bnx2x-e2-7.10.51.0.fw

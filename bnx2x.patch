@@ -1,0 +1,85 @@
+diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h b/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h
+index 86e9451..5097083 100644
+--- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h
++++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x.h
+@@ -2581,4 +2581,9 @@ void bnx2x_set_rx_ts(struct bnx2x *bp, struct sk_buff *skb);
+ #define BNX2X_MAX_PHC_DRIFT 31000000
+ #define BNX2X_PTP_TX_TIMEOUT
+ 
++static inline int dup_is_kdump_kernel(void)
++{
++	return reset_devices;
++}
++
+ #endif /* bnx2x.h */
+diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c
+index 66717c5..bd1fed9 100644
+--- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c
++++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c
+@@ -65,7 +65,7 @@ static int bnx2x_calc_num_queues(struct bnx2x *bp)
+ 	int nq = bnx2x_num_queues ? : netif_get_num_default_rss_queues();
+ 
+ 	/* Reduce memory usage in kdump environment by using only one queue */
+-	if (is_kdump_kernel())
++	if (dup_is_kdump_kernel())
+ 		nq = 1;
+ 
+ 	nq = clamp(nq, 1, BNX2X_MAX_QUEUES(bp));
+@@ -1647,6 +1647,44 @@ void bnx2x_free_irq(struct bnx2x *bp)
+ 	}
+ }
+ 
++/**
++ * pci_enable_msix_range - configure device's MSI-X capability structure
++ * @dev: pointer to the pci_dev data structure of MSI-X device function
++ * @entries: pointer to an array of MSI-X entries
++ * @minvec: minimum number of MSI-X irqs requested
++ * @maxvec: maximum number of MSI-X irqs requested
++ *
++ * Setup the MSI-X capability structure of device function with a maximum
++ * possible number of interrupts in the range between @minvec and @maxvec
++ * upon its software driver call to request for MSI-X mode enabled on its
++ * hardware device function. It returns a negative errno if an error occurs.
++ * If it succeeds, it returns the actual number of interrupts allocated and
++ * indicates the successful configuration of MSI-X capability structure
++ * with new allocated MSI-X interrupts.
++ **/
++static int pci_enable_msix_range(struct pci_dev *dev, struct msix_entry *entries,
++			       int minvec, int maxvec)
++{
++	int nvec = maxvec;
++	int rc;
++
++	if (maxvec < minvec)
++		return -ERANGE;
++
++	do {
++		rc = pci_enable_msix(dev, entries, nvec);
++		if (rc < 0) {
++			return rc;
++		} else if (rc > 0) {
++			if (rc < minvec)
++				return -ENOSPC;
++			nvec = rc;
++		}
++	} while (rc);
++
++	return nvec;
++}
++
+ int bnx2x_enable_msix(struct bnx2x *bp)
+ {
+ 	int msix_vec = 0, i, rc;
+diff --git a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c
+index e22c363..491ffe0 100644
+--- a/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c
++++ b/drivers/net/ethernet/broadcom/bnx2x/bnx2x_main.c
+@@ -11972,7 +11972,7 @@ static int bnx2x_init_bp(struct bnx2x *bp)
+ 	bp->disable_tpa = disable_tpa;
+ 	bp->disable_tpa |= IS_MF_STORAGE_SD(bp) || IS_MF_FCOE_AFEX(bp);
+ 	/* Reduce memory usage in kdump environment by disabling TPA */
+-	bp->disable_tpa |= is_kdump_kernel();
++	bp->disable_tpa |= dup_is_kdump_kernel();
+ 
+ 	/* Set TPA flags */
+ 	if (bp->disable_tpa) {
